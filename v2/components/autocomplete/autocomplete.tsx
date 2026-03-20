@@ -94,34 +94,11 @@ export const RenderAutocomplete = (
     const menuRef = React.useRef(null);
     const listRef = React.useRef<FixedSizeList>(null);
 
-    const frozenItemsRef = React.useRef<NormalizedItem[] | null>(null);
-    const isSearchingRef = React.useRef(false);
-
-    const getActiveItems = (): NormalizedItem[] => {
-        if (isSearchingRef.current && frozenItemsRef.current) {
-            return frozenItemsRef.current;
-        }
-        return normalizeItems(props.items);
-    };
-
-    const startSearch = () => {
-        if (!isSearchingRef.current) {
-            isSearchingRef.current = true;
-            frozenItemsRef.current = normalizeItems(props.items);
-        }
-    };
-
-    const endSearch = () => {
-        isSearchingRef.current = false;
-        frozenItemsRef.current = null;
-    };
-
     React.useEffect(() => {
         function unfocus(e: any) {
             if (autocompleteRef.current && !autocompleteRef.current.contains(e.target) && menuRef.current && !menuRef.current.contains(e.target)) {
                 setShowSuggestions(false);
                 reset();
-                endSearch();
             }
         }
 
@@ -132,10 +109,10 @@ export const RenderAutocomplete = (
     const debouncedVal = useDebounce(props.value as string, 350);
 
     React.useEffect(() => {
-        const activeItems = getActiveItems();
-        const searchValue = debouncedVal?.toLowerCase() || '';
+        const allItems = normalizeItems(props.items);
+        const searchValue = (debouncedVal || '').trim().toLowerCase();
 
-        const filtered = activeItems.filter((item) => {
+        const filtered = allItems.filter((item) => {
             if (!item.label) {
                 return false;
             }
@@ -150,17 +127,22 @@ export const RenderAutocomplete = (
                     : globMatcher.match(item.label);
             }
 
-            return props.abbreviations !== undefined
-                ? item.label.toLowerCase().includes(searchValue) || props.abbreviations.get(item.value)?.toLowerCase().includes(searchValue)
-                : item.label.toLowerCase().includes(searchValue);
+            console.log('searchValue', searchValue);
+            const keywords = searchValue.split(' ').filter(Boolean);
+            if (keywords.length === 0) {
+                return false;
+            }
+
+            const labelLower = item.label.toLowerCase();
+            const abbrLower = props.abbreviations?.get(item.value)?.toLowerCase();
+
+            return keywords.every((kw) => labelLower.includes(kw) || (abbrLower && abbrLower.includes(kw)));
         });
-        setCurItems(filtered.length > 0 ? filtered : activeItems);
-    }, [debouncedVal]);
+        setCurItems(searchValue ? filtered : allItems);
+    }, [debouncedVal, props.items]);
 
     React.useEffect(() => {
-        if (!props.value || props.value === '') {
-            endSearch();
-        } else {
+        if (props.value && props.value !== '') {
             setShowSuggestions(true);
         }
     }, [props.value]);
@@ -193,7 +175,6 @@ export const RenderAutocomplete = (
             if (showSuggestions) {
                 reset();
                 setShowSuggestions(false);
-                endSearch();
                 if (inputRef && inputRef.current) {
                     inputRef.current.blur();
                 }
@@ -290,7 +271,6 @@ export const RenderAutocomplete = (
     }, []);
 
     const onChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-        startSearch();
         if (props.onChange) {
             props.onChange(e);
         }
@@ -299,7 +279,6 @@ export const RenderAutocomplete = (
     const handleItemSelect = (item: NormalizedItem) => {
         onChange({target: {value: item.value}} as React.ChangeEvent<HTMLInputElement>);
         setShowSuggestions(false);
-        endSearch();
         if (props.onSelect) {
             props.onSelect(item.value, item);
         }
@@ -310,6 +289,15 @@ export const RenderAutocomplete = (
 
     const isVisible = showSuggestions && curItems.length > 0;
     const listHeight = Math.min(curItems.length * ITEM_HEIGHT, MAX_LIST_HEIGHT);
+
+    const longestItem = React.useMemo(() => {
+        return curItems.reduce<NormalizedItem | null>((longest, item) => {
+            if (!longest || (item.label || '').length > (longest.label || '').length) {
+                return item;
+            }
+            return longest;
+        }, null);
+    }, [curItems]);
 
     const wrapperClassName = props.wrapperProps?.className || '';
     const wrapperStyle = props.wrapperProps?.style;
@@ -323,7 +311,6 @@ export const RenderAutocomplete = (
                 className: (props.className || '') + ' autocomplete__input',
                 onChange,
                 onFocus: () => {
-                    startSearch();
                     setShowSuggestions(true);
                     checkDirection();
                 },
@@ -338,7 +325,6 @@ export const RenderAutocomplete = (
                 className={(props.className || '') + ' autocomplete__input'}
                 onChange={onChange}
                 onFocus={() => {
-                    startSearch();
                     setShowSuggestions(true);
                     checkDirection();
                 }}
@@ -358,9 +344,16 @@ export const RenderAutocomplete = (
                         overflow: !isVisible ? 'hidden' : null,
                         top: position.top,
                         left: position.left,
-                        width: position.width > 0 ? position.width : undefined,
+                        minWidth: position.width > 0 ? position.width : undefined,
                     }}
                     innerref={menuRef}>
+                    {longestItem && (
+                        <div style={{height: 0, overflow: 'hidden', width: 'max-content'}}>
+                            <div className='autocomplete__items__item'>
+                                {props.renderItem ? props.renderItem(longestItem, false) : longestItem.label}
+                            </div>
+                        </div>
+                    )}
                     {isVisible && (
                         <FixedSizeList
                             ref={listRef}
