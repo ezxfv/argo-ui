@@ -108,18 +108,26 @@ export const RenderAutocomplete = (
 
     const debouncedVal = useDebounce(props.value as string, 350);
 
+    const normalizedItems = React.useMemo(() => normalizeItems(props.items), [props.items]);
+
     React.useEffect(() => {
-        const allItems = normalizeItems(props.items);
         const searchValue = (debouncedVal || '').trim().toLowerCase();
 
-        const filtered = allItems.filter((item) => {
+        if (!searchValue) {
+            setCurItems(normalizedItems);
+            return;
+        }
+
+        const useGlob = typeof props.glob === 'boolean' ? props.glob : !!props.glob;
+        const globOptions = typeof props.glob === 'boolean' ? null : props.glob;
+        const globMatcher = useGlob && searchValue ? new Minimatch(searchValue, globOptions) : null;
+
+        const keywords = !globMatcher ? searchValue.split(' ').filter(Boolean) : null;
+
+        const filtered = normalizedItems.filter((item) => {
             if (!item.label) {
                 return false;
             }
-
-            const useGlob = typeof props.glob === 'boolean' ? props.glob : !!props.glob;
-            const globOptions = typeof props.glob === 'boolean' ? null : props.glob;
-            const globMatcher = useGlob && searchValue ? new Minimatch(searchValue, globOptions) : null;
 
             if (globMatcher) {
                 return props.abbreviations !== undefined
@@ -127,9 +135,7 @@ export const RenderAutocomplete = (
                     : globMatcher.match(item.label);
             }
 
-            console.log('searchValue', searchValue);
-            const keywords = searchValue.split(' ').filter(Boolean);
-            if (keywords.length === 0) {
+            if (!keywords || keywords.length === 0) {
                 return false;
             }
 
@@ -138,8 +144,8 @@ export const RenderAutocomplete = (
 
             return keywords.every((kw) => labelLower.includes(kw) || (abbrLower && abbrLower.includes(kw)));
         });
-        setCurItems(searchValue ? filtered : allItems);
-    }, [debouncedVal, props.items]);
+        setCurItems(filtered);
+    }, [debouncedVal, normalizedItems]);
 
     React.useEffect(() => {
         if (props.value && props.value !== '') {
